@@ -1,0 +1,15 @@
+.experience-title-match {
+  color: var(--experience-highlight-color, #ffffff) !important;
+  cursor: pointer;
+  -webkit-text-fill-color: var(--experience-highlight-color, #ffffff) !important;
+  text-decoration: none !important;
+}
+
+.experience-title-match:hover {
+  color: var(--experience-highlight-color, #ffffff) !important;
+  text-decoration: none !important;
+}
+
+.experience-setting-error {
+  border-color: var(--text-error) !important;
+}
