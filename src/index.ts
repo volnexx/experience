@@ -1,5 +1,4 @@
-import { normalizePath, TFile, Vault } from "obsidian";
-import { type ExperienceRecord, isPathInFolder } from "./archive";
+import { type ExperienceRecord } from "./archive-format";
 import { FuzzyTitleMatcher, normalizeForMatching, type TextMatch } from "./matcher";
 
 export interface ExperienceTextMatch extends TextMatch {
@@ -17,22 +16,12 @@ export class ExperienceTitleIndex {
   private pathByTitle = new Map<string, string>();
   private titleCount = 0;
 
-  constructor(private readonly vault: Vault) {}
-
-  rebuild(folder: string, records: ExperienceRecord[], threshold: number): void {
-    const normalizedFolder = normalizePath(folder.trim());
-    const recordsByPath = new Map(records.map((record) => [record.archivedPath, record]));
-    const indexedTitles: IndexedTitle[] = [];
-
-    for (const file of this.vault.getMarkdownFiles()) {
-      if (!isPathInFolder(file.path, normalizedFolder)) continue;
-      const record = recordsByPath.get(file.path);
-      indexedTitles.push({
-        archivedAt: record?.archivedAt ?? file.stat.mtime,
-        path: file.path,
-        title: record?.title ?? file.basename,
-      });
-    }
+  rebuild(records: ExperienceRecord[], threshold: number): void {
+    const indexedTitles: IndexedTitle[] = records.map((record) => ({
+      archivedAt: record.archivedAt,
+      path: record.archivedPath,
+      title: record.title,
+    }));
 
     indexedTitles.sort((left, right) => right.archivedAt - left.archivedAt || left.path.localeCompare(right.path));
     this.pathByTitle = new Map();

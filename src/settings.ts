@@ -1,6 +1,6 @@
 import { App, normalizePath, PluginSettingTab, Setting } from "obsidian";
 import type ExperiencePlugin from "./main";
-import type { ExperienceRecord } from "./archive";
+import { isExperienceRecord, type ExperienceRecord } from "./archive-format";
 import {
   DEFAULT_ISOLATION_STATE,
   sanitizeIsolationState,
@@ -8,24 +8,24 @@ import {
 } from "./isolation-state";
 
 export interface ExperienceSettings {
-  folder: string;
   highlightColor: string;
   similarityThreshold: number;
 }
 
 export interface ExperienceData extends ExperienceSettings {
+  folder: string;
   isolationState: ExperienceIsolationState;
   records: ExperienceRecord[];
 }
 
 export const DEFAULT_SETTINGS: ExperienceSettings = {
-  folder: "опыт",
   highlightColor: "#ffffff",
   similarityThreshold: 0.9,
 };
 
 export const DEFAULT_DATA: ExperienceData = {
   ...DEFAULT_SETTINGS,
+  folder: "опыт",
   isolationState: { ...DEFAULT_ISOLATION_STATE },
   records: [],
 };
@@ -34,7 +34,7 @@ export function sanitizeData(value: unknown): ExperienceData {
   const stored = isRecord(value) ? value : {};
   const folder = typeof stored.folder === "string" && !validateFolder(stored.folder)
     ? normalizePath(stored.folder.trim())
-    : DEFAULT_SETTINGS.folder;
+    : DEFAULT_DATA.folder;
   const highlightColor = typeof stored.highlightColor === "string" && /^#[0-9a-f]{6}$/iu.test(stored.highlightColor)
     ? stored.highlightColor
     : DEFAULT_SETTINGS.highlightColor;
@@ -64,16 +64,15 @@ export class ExperienceSettingTab extends PluginSettingTab {
     this.containerEl.createEl("h2", { text: "Опыт" });
 
     new Setting(this.containerEl)
-      .setName("Папка опыта")
-      .setDesc("Удаляемые Markdown-заметки будут переноситься в эту папку внутри хранилища.")
-      .addText((text) => {
-        text.setPlaceholder("опыт").setValue(this.plugin.settings.folder);
-        text.onChange(async (value) => {
-          const error = validateFolder(value);
-          text.inputEl.toggleClass("experience-setting-error", !!error);
-          if (!error) await this.plugin.updateSettings({ folder: normalizePath(value.trim()) });
-        });
-      });
+      .setName("Скрытое хранилище")
+      .setDesc(`Архив находится в «${this.plugin.archiveLocation}» и не входит в дерево заметок Obsidian.`)
+      .addButton((button) => button
+        .setButtonText("Проверить сейчас")
+        .onClick(async () => {
+          button.setDisabled(true);
+          await this.plugin.reconcileArchive(true);
+          this.display();
+        }));
 
     new Setting(this.containerEl)
       .setName("Минимальное сходство")
@@ -99,36 +98,13 @@ export class ExperienceSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.highlightColor)
         .onChange(async (value) => this.plugin.updateSettings({ highlightColor: value })));
 
-    new Setting(this.containerEl)
-      .setName("Изоляция папки опыта")
-      .setDesc(this.plugin.isolationDescription)
-      .addButton((button) => button
-        .setButtonText("Применить сейчас")
-        .onClick(async () => {
-          button.setDisabled(true);
-          await this.plugin.applyIsolation(true);
-          this.display();
-        }));
-
     this.containerEl.createEl("p", {
       cls: "setting-item-description",
-      text: `Сейчас в указателе опыта: ${this.plugin.indexSize} заметок.`,
+      text: `Сейчас в скрытом архиве и указателе: ${this.plugin.indexSize} заметок.`,
     });
   }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isExperienceRecord(value: unknown): value is ExperienceRecord {
-  return isRecord(value)
-    && typeof value.archivedAt === "number"
-    && Number.isFinite(value.archivedAt)
-    && typeof value.archivedPath === "string"
-    && !!value.archivedPath
-    && typeof value.originalPath === "string"
-    && !!value.originalPath
-    && typeof value.title === "string"
-    && !!value.title;
 }

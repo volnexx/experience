@@ -1,103 +1,77 @@
 import { MarkdownView, Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
-import { ExperienceArchive, installDeletionInterceptor, isPathInFolder, type ExperienceRecord } from "./archive";
+import { ExperienceArchive, installDeletionInterceptor, type ExperienceRecord } from "./archive";
 import { createExperienceEditorExtension, EditorRefreshBus } from "./editor";
 import { ExperienceTitleIndex } from "./index";
+import { cleanupLegacyIsolation } from "./legacy-cleanup";
 import { highlightExperienceTitles } from "./reading";
-import {
-  DEFAULT_ISOLATION_STATUS,
-  ExperienceIsolation,
-  type ExperienceIsolationStatus,
-  type IsolationPartStatus,
-} from "./isolation";
 import {
   type ExperienceData,
   type ExperienceSettings,
   ExperienceSettingTab,
   sanitizeData,
 } from "./settings";
+import { ExperienceArchiveView, EXPERIENCE_VIEW_TYPE } from "./view";
 
 export default class ExperiencePlugin extends Plugin {
   declare settings: ExperienceData;
   private archive!: ExperienceArchive;
-  private index!: ExperienceTitleIndex;
+  private index = new ExperienceTitleIndex();
   private readonly refreshBus = new EditorRefreshBus();
   private saveQueue: Promise<void> = Promise.resolve();
   private settingTab!: ExperienceSettingTab;
-  private isolation!: ExperienceIsolation;
-  private isolationStatus: ExperienceIsolationStatus = { ...DEFAULT_ISOLATION_STATUS };
 
   async onload(): Promise<void> {
     this.settings = sanitizeData(await this.loadData());
     this.archive = new ExperienceArchive(this.app, () => this.settings.folder);
-    this.index = new ExperienceTitleIndex(this.app.vault);
-    this.isolation = new ExperienceIsolation(
-      this.app,
-      () => this.settings.folder,
-      () => this.settings.isolationState,
-      () => this.settings.records.flatMap((record) => [record.originalPath, record.archivedPath]),
-      async (state) => {
-        this.settings.isolationState = state;
-        await this.persist();
-      },
-    );
+    this.registerView(EXPERIENCE_VIEW_TYPE, (leaf) => new ExperienceArchiveView(leaf, this.archive));
+
+    await this.reconcileArchive(false);
     this.rebuildIndex();
     this.applyHighlightColor();
 
-    this.registerEditorExtension(createExperienceEditorExtension(this.app, this.index, this.refreshBus));
-    this.registerMarkdownPostProcessor((element, context) => {
-      highlightExperienceTitles(element, this.index, this.app, context.sourcePath);
+    this.registerEditorExtension(createExperienceEditorExtension(
+      this.index,
+      this.refreshBus,
+      (path, newLeaf) => this.openArchivedEntry(path, newLeaf),
+    ));
+    this.registerMarkdownPostProcessor((element) => {
+      highlightExperienceTitles(
+        element,
+        this.index,
+        (path, newLeaf) => this.openArchivedEntry(path, newLeaf),
+      );
     });
-    this.register(installDeletionInterceptor(this.app, this.archive, (file) => this.archiveDeletedNote(file)));
+    this.register(installDeletionInterceptor(this.app, (file) => this.archiveDeletedNote(file)));
 
     this.settingTab = new ExperienceSettingTab(this.app, this);
     this.addSettingTab(this.settingTab);
     this.addCommand({
-      id: "apply-experience-folder-isolation",
-      name: "Применить изоляцию папки опыта",
-      callback: () => void this.applyIsolation(true),
+      id: "reconcile-hidden-experience-archive",
+      name: "Проверить скрытый архив и завершить перенос",
+      callback: () => void this.reconcileArchive(true),
     });
 
-    void this.applyIsolation(false);
-    this.app.workspace.onLayoutReady(() => void this.applyIsolation(false));
-
-    this.registerEvent(this.app.vault.on("create", (file) => {
-      if (file instanceof TFile) this.refreshIndexAndViews();
-    }));
-    this.registerEvent(this.app.vault.on("delete", (file) => {
-      if (!(file instanceof TFile)) return;
-      const previousLength = this.settings.records.length;
-      this.settings.records = this.settings.records.filter((record) => record.archivedPath !== file.path);
-      if (this.settings.records.length !== previousLength) void this.persist();
-      this.refreshIndexAndViews();
-    }));
-    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-      if (!(file instanceof TFile)) return;
-      void this.reconcileRename(file, oldPath);
-    }));
+    this.app.workspace.onLayoutReady(() => void this.applyLegacyCleanup([]));
   }
 
   onunload(): void {
     document.documentElement.style.removeProperty("--experience-highlight-color");
+    this.app.workspace.detachLeavesOfType(EXPERIENCE_VIEW_TYPE);
   }
 
   async onExternalSettingsChange(): Promise<void> {
     this.settings = sanitizeData(await this.loadData());
     this.applyHighlightColor();
-    this.refreshIndexAndViews();
-    await this.applyIsolation(false);
+    await this.reconcileArchive(false);
     this.settingTab?.display();
   }
 
-  get indexSize(): number {
-    return this.index?.size ?? 0;
+  get archiveLocation(): string {
+    return this.archive?.rootPath ?? `${this.app.vault.configDir}/experience-archive`;
   }
 
-  get isolationDescription(): string {
-    return [
-      `Obsidian: ${statusLabel(this.isolationStatus.core)}`,
-      `Virtual Linker: ${statusLabel(this.isolationStatus.virtualLinker)}`,
-      `Omnisearch: ${statusLabel(this.isolationStatus.omnisearch)}`,
-    ].join("; ");
+  get indexSize(): number {
+    return this.index.size;
   }
 
   async updateSettings(changes: Partial<ExperienceSettings>): Promise<void> {
@@ -105,12 +79,36 @@ export default class ExperiencePlugin extends Plugin {
     await this.persist();
     this.applyHighlightColor();
     this.refreshIndexAndViews();
-    await this.applyIsolation(false);
   }
 
-  async applyIsolation(showNotice: boolean, stalePaths: string[] = []): Promise<void> {
-    this.isolationStatus = await this.isolation.ensure(stalePaths);
-    if (showNotice) new Notice(`Изоляция применена. ${this.isolationDescription}`);
+  async reconcileArchive(showNotice: boolean): Promise<void> {
+    const previousRecords = this.settings.records.map((record) => ({ ...record }));
+    const stalePaths = previousRecords.flatMap((record) => this.archive.isStoredPath(record.archivedPath)
+      ? []
+      : [record.archivedPath, record.originalPath]);
+    try {
+      const result = await this.archive.initialize(previousRecords);
+      this.settings.records = result.records;
+      await this.applyLegacyCleanup([...stalePaths, ...result.staleVaultPaths]);
+      await this.persist();
+      this.refreshIndexAndViews();
+
+      if (result.errors.length) {
+        console.error("Опыт: перенос завершён с ошибками", result.errors);
+        new Notice(
+          `Скрытый архив проверен, но ${result.errors.length} объект(а) не перенесены. Исходные файлы сохранены.`,
+          8000,
+        );
+      } else if (showNotice || result.migratedCount > 0) {
+        const migration = result.migratedCount > 0
+          ? ` Перенесено из старой папки: ${result.migratedCount}.`
+          : "";
+        new Notice(`Скрытый архив «Опыта» проверен.${migration}`);
+      }
+    } catch (error) {
+      console.error("Опыт: не удалось подготовить скрытый архив", error);
+      if (showNotice) new Notice(`Не удалось проверить скрытый архив: ${messageOf(error)}`, 8000);
+    }
   }
 
   private async archiveDeletedNote(file: TFile): Promise<boolean> {
@@ -119,8 +117,8 @@ export default class ExperiencePlugin extends Plugin {
     try {
       record = await this.archive.archive(file);
     } catch (error) {
-      console.error("Опыт: не удалось перенести заметку", error);
-      new Notice(`Не удалось отправить «${file.name}» в опыт: ${messageOf(error)}`);
+      console.error("Опыт: не удалось сохранить удаляемую заметку", error);
+      new Notice(`Не удалось отправить «${file.name}» в опыт: ${messageOf(error)}`, 8000);
       return false;
     }
 
@@ -129,14 +127,28 @@ export default class ExperiencePlugin extends Plugin {
     this.settings.records.push(record);
     try {
       await this.persist();
-      new Notice(`Заметка отправлена в «${record.archivedPath}».`);
+      new Notice(`«${record.title}» отправлена в скрытый архив «Опыт».`);
     } catch (error) {
-      console.error("Опыт: не удалось сохранить запись", error);
-      new Notice(`Заметка отправлена в «${record.archivedPath}», но исходное название не удалось записать.`);
+      console.error("Опыт: не удалось сохранить запись указателя", error);
+      new Notice("Заметка сохранена в скрытом архиве, но указатель будет восстановлен при перезапуске.", 8000);
     }
     this.refreshIndexAndViews();
-    await this.applyIsolation(false, [record.originalPath, record.archivedPath]);
+    await this.applyLegacyCleanup([record.originalPath]);
     return true;
+  }
+
+  private async openArchivedEntry(path: string, newLeaf: boolean): Promise<void> {
+    if (!this.settings.records.some((record) => record.archivedPath === path)) {
+      new Notice("Архивная заметка больше не существует.");
+      return;
+    }
+    const leaf = this.app.workspace.getLeaf(newLeaf);
+    await leaf.setViewState({
+      active: true,
+      state: { archivedPath: path },
+      type: EXPERIENCE_VIEW_TYPE,
+    });
+    this.app.workspace.revealLeaf(leaf);
   }
 
   private findOpenNoteLeaves(file: TFile): WorkspaceLeaf[] {
@@ -147,7 +159,6 @@ export default class ExperiencePlugin extends Plugin {
         return view.file === file || view.file?.path === originalPath;
       }
 
-      // A background tab can be deferred and therefore have no MarkdownView yet.
       const state = leaf.getViewState().state as { file?: unknown } | undefined;
       return state?.file === originalPath;
     });
@@ -157,30 +168,30 @@ export default class ExperiencePlugin extends Plugin {
     for (const leaf of leaves) leaf.detach();
   }
 
-  private async reconcileRename(file: TFile, oldPath: string): Promise<void> {
-    const recordIndex = this.settings.records.findIndex((record) => record.archivedPath === oldPath);
-    const touchesExperience = recordIndex >= 0
-      || isPathInFolder(oldPath, this.settings.folder)
-      || isPathInFolder(file.path, this.settings.folder);
-    if (recordIndex >= 0) {
-      if (isPathInFolder(file.path, this.settings.folder)) {
-        const record = this.settings.records[recordIndex];
-        if (record) this.settings.records[recordIndex] = { ...record, archivedPath: file.path };
-      } else {
-        this.settings.records.splice(recordIndex, 1);
-      }
-      try {
+  private async applyLegacyCleanup(stalePaths: string[]): Promise<void> {
+    try {
+      const safeStalePaths = stalePaths.filter((path) => {
+        const current = this.app.vault.getAbstractFileByPath(path);
+        return !current || this.archive.isLegacyPath(path);
+      });
+      const legacyFolderStillExists = !!this.app.vault.getAbstractFileByPath(this.settings.folder);
+      const next = await cleanupLegacyIsolation(
+        this.app,
+        this.settings.isolationState,
+        safeStalePaths,
+        !legacyFolderStillExists,
+      );
+      if (JSON.stringify(next) !== JSON.stringify(this.settings.isolationState)) {
+        this.settings.isolationState = next;
         await this.persist();
-      } catch (error) {
-        console.error("Опыт: не удалось обновить запись после переименования", error);
       }
+    } catch (error) {
+      console.error("Опыт: не удалось очистить старые исключения", error);
     }
-    this.refreshIndexAndViews();
-    if (touchesExperience) await this.applyIsolation(false, [oldPath, file.path]);
   }
 
   private rebuildIndex(): void {
-    this.index.rebuild(this.settings.folder, this.settings.records, this.settings.similarityThreshold);
+    this.index.rebuild(this.settings.records, this.settings.similarityThreshold);
   }
 
   private refreshIndexAndViews(): void {
@@ -211,15 +222,6 @@ export default class ExperiencePlugin extends Plugin {
     const result = this.saveQueue.then(() => this.saveData(snapshot));
     this.saveQueue = result.then(() => undefined, () => undefined);
     return result;
-  }
-}
-
-function statusLabel(status: IsolationPartStatus): string {
-  switch (status) {
-    case "active": return "включена";
-    case "not-loaded": return "расширение не включено";
-    case "unavailable": return "не поддерживается этой версией";
-    case "error": return "ошибка";
   }
 }
 

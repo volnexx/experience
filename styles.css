@@ -13,3 +13,39 @@
 .experience-setting-error {
   border-color: var(--text-error) !important;
 }
+
+.experience-archive-view {
+  overflow: auto;
+  padding: var(--size-4-6);
+}
+
+.experience-archive-header {
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin: 0 auto var(--size-4-6);
+  max-width: var(--file-line-width, 700px);
+  padding-bottom: var(--size-4-4);
+}
+
+.experience-archive-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.experience-archive-title {
+  margin: var(--size-4-2) 0;
+}
+
+.experience-archive-meta,
+.experience-archive-message {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.experience-archive-content,
+.experience-archive-message {
+  margin: 0 auto;
+  max-width: var(--file-line-width, 700px);
+}

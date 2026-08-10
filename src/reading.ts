@@ -1,4 +1,3 @@
-import { type App } from "obsidian";
 import { ExperienceTitleIndex } from "./index";
 
 const EXCLUDED_SELECTOR = [
@@ -17,8 +16,7 @@ const EXCLUDED_SELECTOR = [
 export function highlightExperienceTitles(
   root: HTMLElement,
   index: ExperienceTitleIndex,
-  app: App,
-  sourcePath: string,
+  openExperience: (path: string, newLeaf: boolean) => Promise<void>,
 ): void {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes: Text[] = [];
@@ -30,10 +28,14 @@ export function highlightExperienceTitles(
     nodes.push(current);
   }
 
-  for (const node of nodes) highlightTextNode(node, index, app, sourcePath);
+  for (const node of nodes) highlightTextNode(node, index, openExperience);
 }
 
-function highlightTextNode(node: Text, index: ExperienceTitleIndex, app: App, sourcePath: string): void {
+function highlightTextNode(
+  node: Text,
+  index: ExperienceTitleIndex,
+  openExperience: (path: string, newLeaf: boolean) => Promise<void>,
+): void {
   const text = node.textContent ?? "";
   const matches = index.findMatches(text);
   if (!matches.length) return;
@@ -46,16 +48,13 @@ function highlightTextNode(node: Text, index: ExperienceTitleIndex, app: App, so
     link.className = "experience-title-match internal-link";
     link.dataset.experiencePath = match.path;
     link.dataset.href = match.path;
-    link.href = match.path;
+    link.href = `#experience-${encodeURIComponent(match.path)}`;
     link.ariaLabel = `Открыть заметку «${match.title}»`;
     link.textContent = text.slice(match.from, match.to);
     link.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const newLeaf = event.ctrlKey || event.metaKey;
-      const file = app.vault.getFileByPath(match.path);
-      if (file) void app.workspace.getLeaf(newLeaf).openFile(file);
-      else void app.workspace.openLinkText(match.path, sourcePath, newLeaf);
+      void openExperience(match.path, event.ctrlKey || event.metaKey);
     });
     fragment.append(link);
     position = match.to;

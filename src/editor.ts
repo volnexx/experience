@@ -1,7 +1,6 @@
 import { syntaxTree } from "@codemirror/language";
 import { StateEffect, type Extension } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { type App } from "obsidian";
 import { ExperienceTitleIndex } from "./index";
 
 interface Interval {
@@ -26,9 +25,9 @@ export class EditorRefreshBus {
 }
 
 export function createExperienceEditorExtension(
-  app: App,
   index: ExperienceTitleIndex,
   refreshBus: EditorRefreshBus,
+  openExperience: (path: string, newLeaf: boolean) => Promise<void>,
 ): Extension {
   return ViewPlugin.fromClass(class {
     decorations: DecorationSet;
@@ -64,7 +63,7 @@ export function createExperienceEditorExtension(
 
         event.preventDefault();
         event.stopPropagation();
-        void openExperienceLink(app, path, event.ctrlKey || event.metaKey);
+        void openExperience(path, event.ctrlKey || event.metaKey);
         return true;
       },
     },
@@ -90,7 +89,7 @@ function buildDecorations(view: EditorView, index: ExperienceTitleIndex): Decora
       "aria-label": `Открыть заметку «${title}»`,
       "data-experience-path": path,
       "data-href": path,
-      href: path,
+      href: `#experience-${encodeURIComponent(path)}`,
     },
     class: "experience-title-match internal-link",
     tagName: "a",
@@ -99,16 +98,6 @@ function buildDecorations(view: EditorView, index: ExperienceTitleIndex): Decora
 
 function findExperienceLink(target: EventTarget | null): HTMLAnchorElement | null {
   return target instanceof Element ? target.closest<HTMLAnchorElement>(EXPERIENCE_LINK_SELECTOR) : null;
-}
-
-async function openExperienceLink(app: App, path: string, newLeaf: boolean): Promise<void> {
-  const file = app.vault.getFileByPath(path);
-  if (file) {
-    await app.workspace.getLeaf(newLeaf).openFile(file);
-    return;
-  }
-  const sourcePath = app.workspace.getActiveFile()?.path ?? "";
-  await app.workspace.openLinkText(path, sourcePath, newLeaf);
 }
 
 function expandedVisibleRanges(view: EditorView): Interval[] {
