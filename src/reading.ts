@@ -1,4 +1,5 @@
 import { ExperienceTitleIndex } from "./index";
+import { createExperienceLinkDescriptor, shouldOpenExperienceInNewLeaf } from "./link";
 
 const EXCLUDED_SELECTOR = [
   "a",
@@ -44,17 +45,19 @@ function highlightTextNode(
   let position = 0;
   for (const match of matches) {
     if (position < match.from) fragment.append(text.slice(position, match.from));
-    const link = document.createElement("a");
-    link.className = "experience-title-match internal-link";
-    link.dataset.experiencePath = match.path;
-    link.dataset.href = match.path;
-    link.href = `#experience-${encodeURIComponent(match.path)}`;
-    link.ariaLabel = `Открыть заметку «${match.title}»`;
+    const descriptor = createExperienceLinkDescriptor(match.path, match.title);
+    const link = document.createElement(descriptor.tagName);
+    link.className = descriptor.className;
+    for (const [name, value] of Object.entries(descriptor.attributes)) link.setAttribute(name, value);
     link.textContent = text.slice(match.from, match.to);
-    link.addEventListener("click", (event) => {
+    const activate = (event: MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      void openExperience(match.path, event.ctrlKey || event.metaKey);
+      void openExperience(match.path, shouldOpenExperienceInNewLeaf(event));
+    };
+    link.addEventListener("click", activate);
+    link.addEventListener("auxclick", (event) => {
+      if (event.button === 1) activate(event);
     });
     fragment.append(link);
     position = match.to;

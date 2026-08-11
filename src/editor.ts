@@ -2,6 +2,12 @@ import { syntaxTree } from "@codemirror/language";
 import { StateEffect, type Extension } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { ExperienceTitleIndex } from "./index";
+import {
+  createExperienceLinkDescriptor,
+  EXPERIENCE_LINK_SELECTOR,
+  isExcludedSyntaxNodeName,
+  shouldOpenExperienceInNewLeaf,
+} from "./link";
 
 interface Interval {
   from: number;
@@ -9,7 +15,6 @@ interface Interval {
 }
 
 const refreshEffect = StateEffect.define<null>();
-const EXPERIENCE_LINK_SELECTOR = "a.experience-title-match[data-experience-path]";
 
 export class EditorRefreshBus {
   private readonly callbacks = new Set<() => void>();
@@ -56,15 +61,11 @@ export function createExperienceEditorExtension(
     decorations: (value) => value.decorations,
     eventHandlers: {
       click(event) {
-        const link = findExperienceLink(event.target);
-        if (!link) return false;
-        const path = link.dataset.experiencePath;
-        if (!path) return false;
-
-        event.preventDefault();
-        event.stopPropagation();
-        void openExperience(path, event.ctrlKey || event.metaKey);
-        return true;
+        return activateExperienceLink(event, openExperience);
+      },
+      auxclick(event) {
+        if (event.button !== 1) return false;
+        return activateExperienceLink(event, openExperience);
       },
     },
   });
@@ -84,20 +85,32 @@ function buildDecorations(view: EditorView, index: ExperienceTitleIndex): Decora
   }
 
   decorations.sort((left, right) => left.from - right.from || left.to - right.to);
-  return Decoration.set(decorations.map(({ from, path, title, to }) => Decoration.mark({
-    attributes: {
-      "aria-label": `Открыть заметку «${title}»`,
-      "data-experience-path": path,
-      "data-href": path,
-      href: `#experience-${encodeURIComponent(path)}`,
-    },
-    class: "experience-title-match internal-link",
-    tagName: "a",
-  }).range(from, to)), true);
+  return Decoration.set(decorations.map(({ from, path, title, to }) => {
+    const descriptor = createExperienceLinkDescriptor(path, title);
+    return Decoration.mark({
+      attributes: descriptor.attributes,
+      class: descriptor.className,
+      tagName: descriptor.tagName,
+    }).range(from, to);
+  }), true);
 }
 
 function findExperienceLink(target: EventTarget | null): HTMLAnchorElement | null {
   return target instanceof Element ? target.closest<HTMLAnchorElement>(EXPERIENCE_LINK_SELECTOR) : null;
+}
+
+function activateExperienceLink(
+  event: MouseEvent,
+  openExperience: (path: string, newLeaf: boolean) => Promise<void>,
+): boolean {
+  const link = findExperienceLink(event.target);
+  const path = link?.dataset.experiencePath;
+  if (!path) return false;
+
+  event.preventDefault();
+  event.stopPropagation();
+  void openExperience(path, shouldOpenExperienceInNewLeaf(event));
+  return true;
 }
 
 function expandedVisibleRanges(view: EditorView): Interval[] {
@@ -117,14 +130,11 @@ function expandedVisibleRanges(view: EditorView): Interval[] {
 
 function excludedIntervals(view: EditorView, from: number, to: number): Interval[] {
   const excluded: Interval[] = [];
-  const fragments = ["code", "link", "url", "hashtag", "frontmatter", "metadata", "htmlblock"];
-
   syntaxTree(view.state).iterate({
     from,
     to,
     enter(node) {
-      const name = node.type.name.toLocaleLowerCase();
-      if (fragments.some((fragment) => name.includes(fragment))) {
+      if (isExcludedSyntaxNodeName(node.type.name)) {
         excluded.push({ from: node.from, to: node.to });
         return false;
       }
