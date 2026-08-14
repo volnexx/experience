@@ -1,7 +1,7 @@
 {
   "name": "obsidian-experience",
-  "version": "0.5.0",
-  "description": "Store deleted notes outside Obsidian's note tree and link fuzzy title mentions.",
+  "version": "0.6.0",
+  "description": "Store deleted notes and ghost copies of deleted clone lines outside Obsidian's note tree.",
   "main": "main.js",
   "scripts": {
     "build": "node esbuild.config.mjs production",

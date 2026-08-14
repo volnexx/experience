@@ -100,7 +100,7 @@ export class ExperienceSettingTab extends PluginSettingTab {
 
     this.containerEl.createEl("p", {
       cls: "setting-item-description",
-      text: `Сейчас в скрытом архиве и указателе: ${this.plugin.indexSize} заметок.`,
+      text: `Архивных заметок: ${this.plugin.indexSize}. Призрачных заметок с удалёнными строками: ${this.plugin.ghostNoteCount}.`,
     });
   }
 }

@@ -60,7 +60,10 @@ export class ExperienceArchiveView extends ItemView {
       const entry = await this.archive.read(this.archivedPath);
       this.entry = entry;
       const header = this.contentEl.createDiv({ cls: "experience-archive-header" });
-      header.createDiv({ cls: "experience-archive-label", text: "Архивная заметка" });
+      header.createDiv({
+        cls: "experience-archive-label",
+        text: entry.kind === "ghost" ? "Призрачная заметка · удалённые строки" : "Архивная заметка",
+      });
       header.createEl("h1", { cls: "experience-archive-title", text: entry.title });
       header.createDiv({
         cls: "experience-archive-meta",

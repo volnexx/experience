@@ -1,5 +1,10 @@
 import { MarkdownView, Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
-import { ExperienceArchive, installDeletionInterceptor, type ExperienceRecord } from "./archive";
+import {
+  ExperienceArchive,
+  installDeletionInterceptor,
+  type ExperienceRecord,
+  type GhostLineInput,
+} from "./archive";
 import { createExperienceEditorExtension, EditorRefreshBus } from "./editor";
 import { ExperienceTitleIndex } from "./index";
 import { cleanupLegacyIsolation } from "./legacy-cleanup";
@@ -12,11 +17,26 @@ import {
 } from "./settings";
 import { ExperienceArchiveView, EXPERIENCE_VIEW_TYPE } from "./view";
 
+export interface ExperienceGhostArchiveApiResult {
+  archivedLines: number;
+  failedNotes: Array<{ message: string; originalPath: string }>;
+}
+
+export interface ExperiencePublicApi {
+  archiveDeletedCloneLines(inputs: GhostLineInput[]): Promise<ExperienceGhostArchiveApiResult>;
+  version: 1;
+}
+
 export default class ExperiencePlugin extends Plugin {
   declare settings: ExperienceData;
+  readonly api: ExperiencePublicApi = {
+    archiveDeletedCloneLines: (inputs) => this.archiveDeletedCloneLines(inputs),
+    version: 1,
+  };
   private archive!: ExperienceArchive;
   private index = new ExperienceTitleIndex();
   private readonly refreshBus = new EditorRefreshBus();
+  private ghostArchiveQueue: Promise<void> = Promise.resolve();
   private saveQueue: Promise<void> = Promise.resolve();
   private settingTab!: ExperienceSettingTab;
 
@@ -50,6 +70,11 @@ export default class ExperiencePlugin extends Plugin {
       name: "Проверить скрытый архив и завершить перенос",
       callback: () => void this.reconcileArchive(true),
     });
+    this.addCommand({
+      id: "open-ghost-note-for-active-file",
+      name: "Открыть призрачную копию текущей заметки",
+      callback: () => void this.openGhostForActiveFile(),
+    });
 
     this.app.workspace.onLayoutReady(() => void this.applyLegacyCleanup([]));
   }
@@ -72,6 +97,10 @@ export default class ExperiencePlugin extends Plugin {
 
   get indexSize(): number {
     return this.index.size;
+  }
+
+  get ghostNoteCount(): number {
+    return this.settings.records.filter((record) => record.kind === "ghost").length;
   }
 
   async updateSettings(changes: Partial<ExperienceSettings>): Promise<void> {
@@ -109,6 +138,34 @@ export default class ExperiencePlugin extends Plugin {
       console.error("Опыт: не удалось подготовить скрытый архив", error);
       if (showNotice) new Notice(`Не удалось проверить скрытый архив: ${messageOf(error)}`, 8000);
     }
+  }
+
+  async archiveDeletedCloneLines(inputs: GhostLineInput[]): Promise<ExperienceGhostArchiveApiResult> {
+    const operation = this.ghostArchiveQueue.then(
+      () => this.archiveDeletedCloneLinesNow(inputs),
+      () => this.archiveDeletedCloneLinesNow(inputs),
+    );
+    this.ghostArchiveQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async archiveDeletedCloneLinesNow(inputs: GhostLineInput[]): Promise<ExperienceGhostArchiveApiResult> {
+    const result = await this.archive.appendGhostLines(inputs, this.settings.records);
+    if (result.records.length) {
+      const replaced = new Set(result.replacedArchivedPaths);
+      const updatedOriginalPaths = new Set(result.records.map((record) => record.originalPath));
+      this.settings.records = this.settings.records.filter((record) =>
+        !replaced.has(record.archivedPath)
+        && !(record.kind === "ghost" && updatedOriginalPaths.has(record.originalPath)),
+      );
+      this.settings.records.push(...result.records);
+      await this.persist();
+      this.refreshIndexAndViews();
+    }
+    return {
+      archivedLines: result.appendedLineCount,
+      failedNotes: result.errors,
+    };
   }
 
   private async archiveDeletedNote(file: TFile): Promise<boolean> {
@@ -149,6 +206,22 @@ export default class ExperiencePlugin extends Plugin {
       type: EXPERIENCE_VIEW_TYPE,
     });
     this.app.workspace.revealLeaf(leaf);
+  }
+
+  private async openGhostForActiveFile(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("Сначала откройте заметку.");
+      return;
+    }
+    const ghost = this.settings.records
+      .filter((record) => record.kind === "ghost" && record.originalPath === file.path)
+      .sort((left, right) => right.archivedAt - left.archivedAt)[0];
+    if (!ghost) {
+      new Notice(`У «${file.basename}» пока нет призрачной копии.`);
+      return;
+    }
+    await this.openArchivedEntry(ghost.archivedPath, false);
   }
 
   private findOpenNoteLeaves(file: TFile): WorkspaceLeaf[] {

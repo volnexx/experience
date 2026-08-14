@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  appendGhostLinesContent,
   createExperienceFileName,
   parseStoredExperience,
   recordsEqual,
@@ -33,6 +34,28 @@ test("rejects an unsupported archive version", () => {
     () => parseStoredExperience(JSON.stringify({ version: 99 }), "test.experience"),
     /не поддерживается/u,
   );
+});
+
+test("round-trips a ghost note with deleted lines", () => {
+  const value: StoredExperience = {
+    archivedAt: 1_786_326_000_000,
+    archivedPath: ".obsidian/experience-archive/ghost.experience",
+    content: "еда – купить яблоки\n",
+    kind: "ghost",
+    originalPath: "Мысли.md",
+    title: "Мысли",
+  };
+  const parsed = parseStoredExperience(serializeStoredExperience(value), value.archivedPath);
+  assert.ok(recordsEqual(value, parsed));
+  assert.equal(parsed.kind, "ghost");
+});
+
+test("appends deleted lines to one ghost note without joining them", () => {
+  assert.equal(
+    appendGhostLinesContent("первая строка\n", ["вторая строка", "третья строка"]),
+    "первая строка\nвторая строка\nтретья строка\n",
+  );
+  assert.equal(appendGhostLinesContent("первая строка", ["вторая строка"]), "первая строка\nвторая строка\n");
 });
 
 test("creates a deterministic non-Markdown service file name", () => {

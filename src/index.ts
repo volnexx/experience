@@ -17,7 +17,7 @@ export class ExperienceTitleIndex {
   private titleCount = 0;
 
   rebuild(records: ExperienceRecord[], threshold: number): void {
-    const indexedTitles: IndexedTitle[] = records.map((record) => ({
+    const indexedTitles: IndexedTitle[] = records.filter((record) => record.kind !== "ghost").map((record) => ({
       archivedAt: record.archivedAt,
       path: record.archivedPath,
       title: record.title,

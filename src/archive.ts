@@ -1,6 +1,7 @@
 import { around } from "monkey-around";
 import { App, normalizePath, TAbstractFile, TFile, TFolder } from "obsidian";
 import {
+  appendGhostLinesContent,
   createExperienceFileName,
   EXPERIENCE_FILE_EXTENSION,
   parseStoredExperience,
@@ -17,6 +18,24 @@ export interface ArchiveInitializationResult {
   migratedCount: number;
   records: ExperienceRecord[];
   staleVaultPaths: string[];
+}
+
+export interface GhostLineInput {
+  line: string;
+  originalPath: string;
+  title: string;
+}
+
+export interface GhostLineArchiveError {
+  message: string;
+  originalPath: string;
+}
+
+export interface GhostLineArchiveResult {
+  appendedLineCount: number;
+  errors: GhostLineArchiveError[];
+  records: ExperienceRecord[];
+  replacedArchivedPaths: string[];
 }
 
 interface DeletionManager {
@@ -40,6 +59,13 @@ export class ExperienceArchive {
 
   archive(file: TFile): Promise<ExperienceRecord> {
     return this.enqueue(() => this.archiveNow(file));
+  }
+
+  appendGhostLines(
+    inputs: GhostLineInput[],
+    records: ExperienceRecord[],
+  ): Promise<GhostLineArchiveResult> {
+    return this.enqueue(() => this.appendGhostLinesNow(inputs, records));
   }
 
   read(archivedPath: string): Promise<StoredExperience> {
@@ -110,7 +136,14 @@ export class ExperienceArchive {
 
     await this.removeEmptyLegacyFolders(legacyFolder, errors);
     const recordsByPath = new Map<string, ExperienceRecord>();
-    for (const entry of stored) recordsByPath.set(entry.archivedPath, recordFromStored(entry));
+    const newestGhostPathByOriginal = new Map<string, string>();
+    for (const entry of [...stored].sort((left, right) => right.archivedAt - left.archivedAt)) {
+      if (entry.kind === "ghost") {
+        if (newestGhostPathByOriginal.has(entry.originalPath)) continue;
+        newestGhostPathByOriginal.set(entry.originalPath, entry.archivedPath);
+      }
+      recordsByPath.set(entry.archivedPath, recordFromStored(entry));
+    }
     return {
       errors,
       migratedCount,
@@ -137,6 +170,61 @@ export class ExperienceArchive {
       throw error;
     }
     return recordFromStored(stored);
+  }
+
+  private async appendGhostLinesNow(
+    inputs: GhostLineInput[],
+    records: ExperienceRecord[],
+  ): Promise<GhostLineArchiveResult> {
+    const grouped = new Map<string, { lines: string[]; originalPath: string; title: string }>();
+    for (const input of inputs) {
+      const originalPath = normalizePath(String(input.originalPath ?? "").trim());
+      const title = String(input.title ?? "").trim();
+      const line = String(input.line ?? "");
+      if (!originalPath || originalPath === "." || !title || !line.trim()) continue;
+      const group = grouped.get(originalPath) ?? { lines: [], originalPath, title };
+      group.lines.push(line);
+      group.title = title;
+      grouped.set(originalPath, group);
+    }
+
+    const result: GhostLineArchiveResult = {
+      appendedLineCount: 0,
+      errors: [],
+      records: [],
+      replacedArchivedPaths: [],
+    };
+
+    for (const group of grouped.values()) {
+      const previousRecord = records
+        .filter((record) => record.kind === "ghost" && record.originalPath === group.originalPath)
+        .sort((left, right) => right.archivedAt - left.archivedAt)[0];
+      try {
+        let previousContent = "";
+        if (previousRecord) {
+          const previous = await this.readNow(previousRecord.archivedPath);
+          if (previous.kind !== "ghost") throw new Error("Предыдущая призрачная запись имеет неверный тип.");
+          previousContent = previous.content;
+        }
+        const stored = await this.writeStored({
+          archivedAt: Math.max(Date.now(), (previousRecord?.archivedAt ?? 0) + 1),
+          archivedPath: "",
+          content: appendGhostLinesContent(previousContent, group.lines),
+          kind: "ghost",
+          originalPath: group.originalPath,
+          title: group.title,
+        });
+        if (previousRecord) {
+          result.replacedArchivedPaths.push(previousRecord.archivedPath);
+          await this.safeRemove(previousRecord.archivedPath);
+        }
+        result.records.push(recordFromStored(stored));
+        result.appendedLineCount += group.lines.length;
+      } catch (error) {
+        result.errors.push({ message: messageOf(error), originalPath: group.originalPath });
+      }
+    }
+    return result;
   }
 
   private async writeStored(source: StoredExperience): Promise<StoredExperience> {
@@ -260,6 +348,7 @@ function recordFromStored(value: StoredExperience): ExperienceRecord {
     originalPath: value.originalPath,
     title: value.title,
   };
+  if (value.kind === "ghost") record.kind = value.kind;
   if (value.migratedFromPath) record.migratedFromPath = value.migratedFromPath;
   return record;
 }

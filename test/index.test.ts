@@ -33,3 +33,16 @@ test("uses the newest record when archived titles are equal", () => {
   assert.equal(index.findMatches("повтор")[0]?.path, ".obsidian/experience-archive/new.experience");
   assert.equal(index.size, 1);
 });
+
+test("does not turn a live note's ghost copy into an archive title link", () => {
+  const index = new ExperienceTitleIndex();
+  index.rebuild([{
+    archivedAt: 300,
+    archivedPath: ".obsidian/experience-archive/ghost.experience",
+    kind: "ghost",
+    originalPath: "Живые/Мысли.md",
+    title: "Мысли",
+  }], 0.9);
+  assert.deepEqual(index.findMatches("Мои мысли"), []);
+  assert.equal(index.size, 0);
+});
