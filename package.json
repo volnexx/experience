@@ -1,6 +1,6 @@
 {
   "name": "obsidian-experience",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Store deleted notes and ghost copies of deleted clone lines outside Obsidian's note tree.",
   "main": "main.js",
   "scripts": {

@@ -1,9 +1,9 @@
 {
   "id": "experience",
   "name": "Опыт",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "minAppVersion": "1.5.0",
-  "description": "Хранит удаляемые заметки и призрачные копии удалённых строк вне дерева Obsidian.",
+  "description": "Хранит удалённые заметки и строки, связывая их названия с копиями в скрытом архиве.",
   "author": "папочка & Codex",
   "isDesktopOnly": false
 }

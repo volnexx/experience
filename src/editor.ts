@@ -1,12 +1,19 @@
 import { syntaxTree } from "@codemirror/language";
 import { StateEffect, type Extension } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  ViewPlugin,
+  type ViewUpdate,
+  WidgetType,
+} from "@codemirror/view";
 import { ExperienceTitleIndex } from "./index";
 import {
-  createExperienceLinkDescriptor,
-  EXPERIENCE_LINK_SELECTOR,
+  createExperienceLinkElement,
+  isCursorInsideExperienceMatch,
   isExcludedSyntaxNodeName,
-  shouldOpenExperienceInNewLeaf,
+  type ExperienceLinkOpener,
 } from "./link";
 
 interface Interval {
@@ -39,7 +46,7 @@ export function createExperienceEditorExtension(
     private readonly unsubscribe: () => void;
 
     constructor(private readonly view: EditorView) {
-      this.decorations = buildDecorations(view, index);
+      this.decorations = buildDecorations(view, index, openExperience);
       this.unsubscribe = refreshBus.subscribe(() => {
         this.view.dispatch({ effects: refreshEffect.of(null) });
       });
@@ -49,29 +56,48 @@ export function createExperienceEditorExtension(
       const forced = update.transactions.some((transaction) =>
         transaction.effects.some((effect) => effect.is(refreshEffect)),
       );
-      if (forced || update.docChanged || update.viewportChanged) {
-        this.decorations = buildDecorations(update.view, index);
+      if (forced || update.docChanged || update.selectionSet || update.viewportChanged) {
+        this.decorations = buildDecorations(update.view, index, openExperience);
       }
     }
 
     destroy(): void {
       this.unsubscribe();
     }
-  }, {
-    decorations: (value) => value.decorations,
-    eventHandlers: {
-      click(event) {
-        return activateExperienceLink(event, openExperience);
-      },
-      auxclick(event) {
-        if (event.button !== 1) return false;
-        return activateExperienceLink(event, openExperience);
-      },
-    },
-  });
+  }, { decorations: (value) => value.decorations });
 }
 
-function buildDecorations(view: EditorView, index: ExperienceTitleIndex): DecorationSet {
+class ExperienceLinkWidget extends WidgetType {
+  constructor(
+    private readonly path: string,
+    private readonly title: string,
+    private readonly text: string,
+    private readonly openExperience: ExperienceLinkOpener,
+  ) {
+    super();
+  }
+
+  eq(other: WidgetType): boolean {
+    return other instanceof ExperienceLinkWidget
+      && this.path === other.path
+      && this.title === other.title
+      && this.text === other.text;
+  }
+
+  toDOM(): HTMLElement {
+    return createExperienceLinkElement(this.path, this.title, this.text, this.openExperience);
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+function buildDecorations(
+  view: EditorView,
+  index: ExperienceTitleIndex,
+  openExperience: ExperienceLinkOpener,
+): DecorationSet {
   const ranges = expandedVisibleRanges(view);
   const decorations: Array<{ from: number; path: string; title: string; to: number }> = [];
 
@@ -85,32 +111,16 @@ function buildDecorations(view: EditorView, index: ExperienceTitleIndex): Decora
   }
 
   decorations.sort((left, right) => left.from - right.from || left.to - right.to);
+  const cursor = view.state.selection.main.head;
   return Decoration.set(decorations.map(({ from, path, title, to }) => {
-    const descriptor = createExperienceLinkDescriptor(path, title);
-    return Decoration.mark({
-      attributes: descriptor.attributes,
-      class: descriptor.className,
-      tagName: descriptor.tagName,
+    if (isCursorInsideExperienceMatch(cursor, from, to)) {
+      return Decoration.mark({ class: "experience-title-match experience-title-match-editing" }).range(from, to);
+    }
+    const text = view.state.doc.sliceString(from, to);
+    return Decoration.replace({
+      widget: new ExperienceLinkWidget(path, title, text, openExperience),
     }).range(from, to);
   }), true);
-}
-
-function findExperienceLink(target: EventTarget | null): HTMLAnchorElement | null {
-  return target instanceof Element ? target.closest<HTMLAnchorElement>(EXPERIENCE_LINK_SELECTOR) : null;
-}
-
-function activateExperienceLink(
-  event: MouseEvent,
-  openExperience: (path: string, newLeaf: boolean) => Promise<void>,
-): boolean {
-  const link = findExperienceLink(event.target);
-  const path = link?.dataset.experiencePath;
-  if (!path) return false;
-
-  event.preventDefault();
-  event.stopPropagation();
-  void openExperience(path, shouldOpenExperienceInNewLeaf(event));
-  return true;
 }
 
 function expandedVisibleRanges(view: EditorView): Interval[] {

@@ -10,6 +10,11 @@
   text-decoration: none !important;
 }
 
+.experience-title-match-editing,
+.experience-title-match-editing:hover {
+  cursor: text;
+}
+
 .experience-setting-error {
   border-color: var(--text-error) !important;
 }
