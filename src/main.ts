@@ -1,7 +1,15 @@
-import { MarkdownView, Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
+import {
+  addIcon,
+  MarkdownView,
+  Menu,
+  Notice,
+  Plugin,
+  TAbstractFile,
+  TFile,
+  type WorkspaceLeaf,
+} from "obsidian";
 import {
   ExperienceArchive,
-  installDeletionInterceptor,
   type ExperienceRecord,
   type GhostLineInput,
 } from "./archive";
@@ -16,6 +24,16 @@ import {
   sanitizeData,
 } from "./settings";
 import { ExperienceArchiveView, EXPERIENCE_VIEW_TYPE } from "./view";
+
+const EXPERIENCE_GHOST_TRASH_ICON = "experience-ghost-trash";
+const EXPERIENCE_GHOST_TRASH_SVG = [
+  '<path d="M3 6h18"/>',
+  '<path d="M8 6V4h8v2"/>',
+  '<path d="M19 6l-1 14H6L5 6"/>',
+  '<circle cx="9" cy="11" r="1"/>',
+  '<circle cx="15" cy="11" r="1"/>',
+  '<path d="M9 16c1.2-1.5 2.2-2 3-2s1.8.5 3 2"/>',
+].join("");
 
 export interface ExperienceGhostArchiveApiResult {
   archivedLines: number;
@@ -41,6 +59,8 @@ export default class ExperiencePlugin extends Plugin {
   private settingTab!: ExperienceSettingTab;
 
   async onload(): Promise<void> {
+    addIcon(EXPERIENCE_GHOST_TRASH_ICON, EXPERIENCE_GHOST_TRASH_SVG);
+
     this.settings = sanitizeData(await this.loadData());
     this.archive = new ExperienceArchive(this.app, () => this.settings.folder);
     this.registerView(EXPERIENCE_VIEW_TYPE, (leaf) => new ExperienceArchiveView(leaf, this.archive));
@@ -61,7 +81,18 @@ export default class ExperiencePlugin extends Plugin {
         (path, newLeaf) => this.openArchivedEntry(path, newLeaf),
       );
     });
-    this.register(installDeletionInterceptor(this.app, (file) => this.archiveDeletedNote(file)));
+
+    this.registerEvent(this.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
+      if (!(file instanceof TFile) || file.extension.toLocaleLowerCase() !== "md") return;
+      menu.addItem((item) => {
+        item
+          .setTitle("Отправить в опыт")
+          .setIcon(EXPERIENCE_GHOST_TRASH_ICON)
+          .setWarning()
+          .setSection("danger")
+          .onClick(() => void this.archiveNote(file));
+      });
+    }));
 
     this.settingTab = new ExperienceSettingTab(this.app, this);
     this.addSettingTab(this.settingTab);
@@ -69,6 +100,16 @@ export default class ExperiencePlugin extends Plugin {
       id: "reconcile-hidden-experience-archive",
       name: "Проверить скрытый архив и завершить перенос",
       callback: () => void this.reconcileArchive(true),
+    });
+    this.addCommand({
+      id: "archive-active-note",
+      name: "Отправить текущую заметку в опыт",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || file.extension.toLocaleLowerCase() !== "md") return false;
+        if (!checking) void this.archiveNote(file);
+        return true;
+      },
     });
     this.addCommand({
       id: "open-ghost-note-for-active-file",
@@ -168,13 +209,13 @@ export default class ExperiencePlugin extends Plugin {
     };
   }
 
-  private async archiveDeletedNote(file: TFile): Promise<boolean> {
+  private async archiveNote(file: TFile): Promise<boolean> {
     const openLeaves = this.findOpenNoteLeaves(file);
     let record: ExperienceRecord;
     try {
       record = await this.archive.archive(file);
     } catch (error) {
-      console.error("Опыт: не удалось сохранить удаляемую заметку", error);
+      console.error("Опыт: не удалось сохранить заметку", error);
       new Notice(`Не удалось отправить «${file.name}» в опыт: ${messageOf(error)}`, 8000);
       return false;
     }
