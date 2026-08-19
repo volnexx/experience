@@ -1,7 +1,7 @@
 {
   "name": "obsidian-experience",
-  "version": "0.8.3",
-  "description": "Store notes in Experience through an explicit archive command instead of intercepting Obsidian deletion.",
+  "version": "0.9.0",
+  "description": "Store notes in Experience through an explicit archive command and manage archived notes from their pane menu.",
   "main": "main.js",
   "scripts": {
     "build": "node esbuild.config.mjs production",
