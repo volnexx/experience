@@ -25,14 +25,16 @@ import {
 } from "./settings";
 import { ExperienceArchiveView, EXPERIENCE_VIEW_TYPE } from "./view";
 
-const EXPERIENCE_GHOST_TRASH_ICON = "experience-ghost-trash";
+const EXPERIENCE_GHOST_TRASH_ICON = "experience-ghost-trash-v2";
 const EXPERIENCE_GHOST_TRASH_SVG = [
-  '<path d="M3 6h18"/>',
-  '<path d="M8 6V4h8v2"/>',
-  '<path d="M19 6l-1 14H6L5 6"/>',
-  '<circle cx="9" cy="11" r="1"/>',
-  '<circle cx="15" cy="11" r="1"/>',
-  '<path d="M9 16c1.2-1.5 2.2-2 3-2s1.8.5 3 2"/>',
+  '<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">',
+  '<path d="M3 5.5h18"/>',
+  '<path d="M8.5 5.5V3.8h7v1.7"/>',
+  '<path d="M18.5 5.5l-.9 14H6.4l-.9-14"/>',
+  '<path d="M9 16.2v-3.4a3 3 0 0 1 6 0v3.4l-1.5-1-1.5 1-1.5-1-1.5 1Z"/>',
+  '</g>',
+  '<circle cx="11" cy="12.2" r=".65" fill="currentColor"/>',
+  '<circle cx="13" cy="12.2" r=".65" fill="currentColor"/>',
 ].join("");
 
 export interface ExperienceGhostArchiveApiResult {
@@ -88,7 +90,7 @@ export default class ExperiencePlugin extends Plugin {
         item
           .setTitle("Отправить в опыт")
           .setIcon(EXPERIENCE_GHOST_TRASH_ICON)
-          .setWarning()
+          .setWarning(true)
           .setSection("danger")
           .onClick(() => void this.archiveNote(file));
       });
