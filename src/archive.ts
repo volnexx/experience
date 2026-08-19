@@ -1,5 +1,4 @@
-import { around } from "monkey-around";
-import { App, normalizePath, TAbstractFile, TFile, TFolder } from "obsidian";
+import { App, normalizePath, TFile, TFolder } from "obsidian";
 import {
   appendGhostLinesContent,
   createExperienceFileName,
@@ -36,10 +35,6 @@ export interface GhostLineArchiveResult {
   errors: GhostLineArchiveError[];
   records: ExperienceRecord[];
   replacedArchivedPaths: string[];
-}
-
-interface DeletionManager {
-  promptForDeletion(file: TAbstractFile): Promise<boolean>;
 }
 
 export class ExperienceArchive {
@@ -320,21 +315,6 @@ export class ExperienceArchive {
     this.operationQueue = result.then(() => undefined, () => undefined);
     return result;
   }
-}
-
-export function installDeletionInterceptor(
-  app: App,
-  archiveFile: (file: TFile) => Promise<boolean>,
-): () => void {
-  const manager = app.fileManager as unknown as DeletionManager;
-  return around(manager, {
-    promptForDeletion: (next) => async function (this: DeletionManager, file: TAbstractFile): Promise<boolean> {
-      if (!(file instanceof TFile) || file.extension.toLocaleLowerCase() !== "md") {
-        return next.call(this, file);
-      }
-      return archiveFile(file);
-    },
-  });
 }
 
 export function isPathInFolder(path: string, folder: string): boolean {
