@@ -25,16 +25,16 @@ import {
 } from "./settings";
 import { ExperienceArchiveView, EXPERIENCE_VIEW_TYPE } from "./view";
 
-const EXPERIENCE_GHOST_TRASH_ICON = "experience-ghost-trash-v2";
+const EXPERIENCE_GHOST_TRASH_ICON = "experience-ghost-trash-v3";
 const EXPERIENCE_GHOST_TRASH_SVG = [
-  '<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">',
-  '<path d="M3 5.5h18"/>',
-  '<path d="M8.5 5.5V3.8h7v1.7"/>',
-  '<path d="M18.5 5.5l-.9 14H6.4l-.9-14"/>',
-  '<path d="M9 16.2v-3.4a3 3 0 0 1 6 0v3.4l-1.5-1-1.5 1-1.5-1-1.5 1Z"/>',
+  '<g fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">',
+  '<path d="M18 25h64"/>',
+  '<path d="M36 25v-8h28v8"/>',
+  '<path d="M76 25l-5 59H29l-5-59"/>',
+  '<path d="M37 69V52c0-8 5.8-14 13-14s13 6 13 14v17l-7-4.5-6 4.5-6-4.5-7 4.5Z"/>',
   '</g>',
-  '<circle cx="11" cy="12.2" r=".65" fill="currentColor"/>',
-  '<circle cx="13" cy="12.2" r=".65" fill="currentColor"/>',
+  '<circle cx="45" cy="52" r="3" fill="currentColor"/>',
+  '<circle cx="55" cy="52" r="3" fill="currentColor"/>',
 ].join("");
 
 export interface ExperienceGhostArchiveApiResult {
