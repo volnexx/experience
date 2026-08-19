@@ -2,6 +2,7 @@ import {
   addIcon,
   MarkdownView,
   Menu,
+  normalizePath,
   Notice,
   Plugin,
   TAbstractFile,
@@ -60,7 +61,12 @@ export default class ExperiencePlugin extends Plugin {
 
     this.settings = sanitizeData(await this.loadData());
     this.archive = new ExperienceArchive(this.app, () => this.settings.folder);
-    this.registerView(EXPERIENCE_VIEW_TYPE, (leaf) => new ExperienceArchiveView(leaf, this.archive));
+    this.registerView(EXPERIENCE_VIEW_TYPE, (leaf) => new ExperienceArchiveView(
+      leaf,
+      this.archive,
+      (path) => this.restoreArchivedEntry(path, leaf),
+      (path) => this.deleteArchivedEntry(path, leaf),
+    ));
 
     await this.reconcileArchive(false);
     this.rebuildIndex();
@@ -231,6 +237,106 @@ export default class ExperiencePlugin extends Plugin {
     this.refreshIndexAndViews();
     await this.applyLegacyCleanup([record.originalPath]);
     return true;
+  }
+
+  private async restoreArchivedEntry(archivedPath: string, leaf: WorkspaceLeaf): Promise<void> {
+    const record = this.settings.records.find((item) => item.archivedPath === archivedPath);
+    if (!record) {
+      new Notice("Архивная заметка больше не существует.");
+      return;
+    }
+
+    let restored: TFile | null = null;
+    try {
+      const entry = await this.archive.read(archivedPath);
+      if (entry.kind === "ghost") throw new Error("Призрачные заметки нельзя восстанавливать как обычные файлы.");
+
+      const destination = normalizePath(entry.originalPath);
+      if (!destination || destination === "." || !destination.toLocaleLowerCase().endsWith(".md")) {
+        throw new Error("Исходный путь заметки недопустим.");
+      }
+      if (this.app.vault.getAbstractFileByPath(destination) || await this.app.vault.adapter.exists(destination)) {
+        throw new Error(`По исходному пути уже существует файл: ${destination}`);
+      }
+
+      await this.ensureParentFolders(destination);
+      restored = await this.app.vault.create(destination, entry.content);
+      const verified = await this.app.vault.read(restored);
+      if (verified !== entry.content) throw new Error("Проверка восстановленного содержимого не пройдена.");
+
+      try {
+        await this.app.vault.adapter.remove(archivedPath);
+        if (await this.app.vault.adapter.exists(archivedPath)) {
+          throw new Error("Служебная архивная копия осталась после восстановления.");
+        }
+      } catch (error) {
+        try {
+          await this.app.vault.delete(restored, false);
+        } catch (rollbackError) {
+          console.error("Опыт: не удалось откатить восстановленную заметку", rollbackError);
+        }
+        restored = null;
+        throw error;
+      }
+    } catch (error) {
+      console.error("Опыт: не удалось восстановить архивную заметку", error);
+      new Notice(`Не удалось восстановить «${record.title}»: ${messageOf(error)}`, 8000);
+      return;
+    }
+
+    this.settings.records = this.settings.records.filter((item) => item.archivedPath !== archivedPath);
+    try {
+      await this.persist();
+    } catch (error) {
+      console.error("Опыт: восстановление выполнено, но не удалось сохранить указатель", error);
+      new Notice("Заметка восстановлена, но указатель «Опыта» будет исправлен при следующем запуске.", 8000);
+    }
+    this.refreshIndexAndViews();
+    await leaf.openFile(restored);
+    new Notice(`«${record.title}» восстановлена из «Опыта».`);
+  }
+
+  private async deleteArchivedEntry(archivedPath: string, leaf: WorkspaceLeaf): Promise<void> {
+    const record = this.settings.records.find((item) => item.archivedPath === archivedPath);
+    if (!record) {
+      new Notice("Архивная заметка больше не существует.");
+      return;
+    }
+
+    try {
+      await this.archive.read(archivedPath);
+      await this.app.vault.adapter.remove(archivedPath);
+      if (await this.app.vault.adapter.exists(archivedPath)) {
+        throw new Error("Служебный файл остался после удаления.");
+      }
+    } catch (error) {
+      console.error("Опыт: не удалось удалить архивную заметку", error);
+      new Notice(`Не удалось удалить «${record.title}»: ${messageOf(error)}`, 8000);
+      return;
+    }
+
+    this.settings.records = this.settings.records.filter((item) => item.archivedPath !== archivedPath);
+    try {
+      await this.persist();
+    } catch (error) {
+      console.error("Опыт: архив удалён, но не удалось сохранить указатель", error);
+      new Notice("Архивная заметка удалена, но указатель «Опыта» будет исправлен при следующем запуске.", 8000);
+    }
+    this.refreshIndexAndViews();
+    leaf.detach();
+    new Notice(`«${record.title}» удалена из «Опыта».`);
+  }
+
+  private async ensureParentFolders(path: string): Promise<void> {
+    const parts = normalizePath(path).split("/");
+    parts.pop();
+    let current = "";
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      const existing = this.app.vault.getAbstractFileByPath(current);
+      if (existing instanceof TFile) throw new Error(`«${current}» является файлом, а не папкой.`);
+      if (!existing) await this.app.vault.createFolder(current);
+    }
   }
 
   private async openArchivedEntry(path: string, newLeaf: boolean): Promise<void> {
