@@ -25,16 +25,11 @@ import {
 } from "./settings";
 import { ExperienceArchiveView, EXPERIENCE_VIEW_TYPE } from "./view";
 
-const EXPERIENCE_GHOST_TRASH_ICON = "experience-ghost-trash-v3";
+const EXPERIENCE_GHOST_TRASH_ICON = "experience-ghost-trash-v4";
 const EXPERIENCE_GHOST_TRASH_SVG = [
-  '<g fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">',
-  '<path d="M18 25h64"/>',
-  '<path d="M36 25v-8h28v8"/>',
-  '<path d="M76 25l-5 59H29l-5-59"/>',
-  '<path d="M37 69V52c0-8 5.8-14 13-14s13 6 13 14v17l-7-4.5-6 4.5-6-4.5-7 4.5Z"/>',
-  '</g>',
-  '<circle cx="45" cy="52" r="3" fill="currentColor"/>',
-  '<circle cx="55" cy="52" r="3" fill="currentColor"/>',
+  '<rect x="7" y="21" width="86" height="13" rx="4" fill="currentColor"/>',
+  '<path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M13 35h74l-7 59H20l-7-59Zm31 25a8 12 0 1 1-16 0 8 12 0 1 1 16 0Zm28 0a8 12 0 1 1-16 0 8 12 0 1 1 16 0Z"/>',
+  '<path d="M34 21V8h32v13" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>',
 ].join("");
 
 export interface ExperienceGhostArchiveApiResult {
@@ -93,6 +88,7 @@ export default class ExperiencePlugin extends Plugin {
           .setWarning(true)
           .setSection("danger")
           .onClick(() => void this.archiveNote(file));
+        (item as unknown as { dom?: HTMLElement }).dom?.addClass("experience-archive-menu-item");
       });
     }));
 

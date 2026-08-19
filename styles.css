@@ -54,3 +54,22 @@
   margin: 0 auto;
   max-width: var(--file-line-width, 700px);
 }
+
+/* Explicit archive action: use the active theme's semantic negative color. */
+.menu-item.experience-archive-menu-item,
+.menu-item.experience-archive-menu-item .menu-item-title,
+.menu-item.experience-archive-menu-item .menu-item-icon,
+.menu-item.experience-archive-menu-item .menu-item-icon svg {
+  color: var(--text-error) !important;
+}
+
+.menu-item.experience-archive-menu-item {
+  --icon-color: var(--text-error);
+  --icon-color-hover: var(--text-error);
+}
+
+.menu-item.experience-archive-menu-item .menu-item-icon svg {
+  transform: scale(1.16);
+  transform-origin: center;
+}
+
