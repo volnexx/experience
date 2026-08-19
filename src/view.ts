@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, type ViewStateResult, type WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownRenderer, Menu, type ViewStateResult, type WorkspaceLeaf } from "obsidian";
 import type { ExperienceArchive, StoredExperience } from "./archive";
 
 export const EXPERIENCE_VIEW_TYPE = "experience-archive-view";
@@ -7,6 +7,8 @@ interface ExperienceViewState {
   archivedPath?: unknown;
 }
 
+type ArchiveAction = (archivedPath: string) => Promise<void>;
+
 export class ExperienceArchiveView extends ItemView {
   private archivedPath = "";
   private entry: StoredExperience | null = null;
@@ -14,6 +16,8 @@ export class ExperienceArchiveView extends ItemView {
   constructor(
     leaf: WorkspaceLeaf,
     private readonly archive: ExperienceArchive,
+    private readonly restoreEntry: ArchiveAction,
+    private readonly deleteEntry: ArchiveAction,
   ) {
     super(leaf);
     this.navigation = true;
@@ -40,6 +44,30 @@ export class ExperienceArchiveView extends ItemView {
     this.archivedPath = typeof value?.archivedPath === "string" ? value.archivedPath : "";
     result.history = true;
     await this.renderEntry();
+  }
+
+  onPaneMenu(menu: Menu, source: "more-options" | "tab-header" | string): void {
+    super.onPaneMenu(menu, source);
+    if (!this.entry || !this.archivedPath) return;
+
+    if (this.entry.kind !== "ghost") {
+      menu.addItem((item) => {
+        item
+          .setTitle("Восстановить заметку")
+          .setIcon("rotate-ccw")
+          .setSection("action")
+          .onClick(() => void this.restoreEntry(this.archivedPath));
+      });
+    }
+
+    menu.addItem((item) => {
+      item
+        .setTitle("Удалить файл")
+        .setIcon("trash-2")
+        .setWarning(true)
+        .setSection("danger")
+        .onClick(() => void this.deleteEntry(this.archivedPath));
+    });
   }
 
   protected async onOpen(): Promise<void> {
